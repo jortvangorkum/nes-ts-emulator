@@ -1,4 +1,6 @@
 import CPUMemory from "./cpu_memory";
+import { OPCODES } from "./opcodes";
+import { ADDRESSING_MODES } from "./addressing_modes";
 
 /** 
  * The CPU is a 6502 microprocessor which is an 8 bit CPU .
@@ -71,6 +73,23 @@ export class CPU {
             V: 0,
             N: 0,
         };
+    }
+
+    tick() {
+        const opcode = this.read8(this.PC);
+        const [
+            instruction,
+            addressingMode,
+            instructionSize,
+            instructionCycles
+        ] = OPCODES[opcode];
+
+        const address = addressingMode(this);
+
+        this.PC += instructionSize;
+        this.cycles += instructionCycles;
+
+        instruction(address, this);
     }
 
     /*
