@@ -246,61 +246,188 @@ export const INSTRUCTION_SET: Record<string, Instruction> = {
         cpu.PC = address & 0xFFFF;
     },
     /** Jump to Subroutine */
-    JSR: (address, cpu) => {},
+    JSR: (address, cpu) => {
+        cpu.stackPush16(cpu.PC - 1);
+        cpu.PC = address & 0xFFFF;
+    },
     /** Load Accumulator */
-    LDA: (address, cpu) => {},
+    LDA: (address, cpu) => {
+        cpu.A = cpu.read8(address);
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Load X Register */
-    LDX: (address, cpu) => {},
+    LDX: (address, cpu) => {
+        cpu.X = cpu.read8(address);
+        cpu.setNegativeFlag(cpu.X);
+        cpu.setZeroFlag(cpu.X);
+    },
     /** Load Y Register */
-    LDY: (address, cpu) => {},
-    /** Logical Shift Right */
-    LSR: (address, cpu) => {},
+    LDY: (address, cpu) => {
+        cpu.Y = cpu.read8(address);
+        cpu.setNegativeFlag(cpu.Y);
+        cpu.setZeroFlag(cpu.Y);
+    },
+    /** Logical Shift Right (Accumulator) */
+    LSR_ACC: (address, cpu) => {
+        cpu.flags.C = cpu.A & 1;
+        cpu.A >>= 1;
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
+    /** Logical Shift Right (Memory) */
+    LSR: (address, cpu) => {
+        let value = cpu.read8(address);
+        cpu.flags.C = value & 1;
+        value >>= 1;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value);
+    },
     /** No Operation */
     NOP: (address, cpu) => {},
     /** Logical Inclusive OR */
-    ORA: (address, cpu) => {},
+    ORA: (address, cpu) => {
+        cpu.A |= cpu.read8(address);
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Push Accumulator */
-    PHA: (address, cpu) => {},
+    PHA: (address, cpu) => {
+        cpu.stackPush8(cpu.A);
+    },
     /** Push Processor Status */
-    PHP: (address, cpu) => {},
+    PHP: (address, cpu) => {
+        cpu.stackPush8(cpu.getFlags() | 0x10);
+    },
     /** Pull Accumulator */
-    PLA: (address, cpu) => {},
+    PLA: (address, cpu) => {
+        cpu.A = cpu.stackPull8();
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Pull Processor Status */
-    PLP: (address, cpu) => {},
-    /** Rotate Left */
-    ROL: (address, cpu) => {},
-    /** Rotate Right */
-    ROR: (address, cpu) => {},
+    PLP: (address, cpu) => {
+        cpu.setFlags((cpu.stackPull8() & 0xEF) | 0x20);
+    },
+    /** Rotate Left (Accumulator) */
+    ROL_ACC: (address, cpu) => {
+        const oldC = cpu.flags.C;
+        
+        cpu.flags.C = (cpu.A >> 7) & 1;
+        cpu.A = ((cpu.A << 1) & 0xFF) | oldC;
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
+    /** Rotate Left (Memory) */
+    ROL: (address, cpu) => {
+        const oldC = cpu.flags.C;
+        let value = cpu.read8(address);
+
+        cpu.flags.C = (value >> 7) & 1;
+        value = ((value << 1) & 0xFF) | oldC;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value); 
+    },
+    /** Rotate Right (Accumulator) */
+    ROR_ACC: (address, cpu) => {
+        const oldC = cpu.flags.C;
+
+        cpu.flags.C = cpu.A & 1;
+        cpu.A = (cpu.A >> 1) ^ (oldC << 7);
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
+    /** Rotate Right (Memory) */
+    ROR: (address, cpu) => {
+        const oldC = cpu.flags.C;
+        let value = cpu.read8(address);
+
+        cpu.flags.C = value & 1;
+        value = (value >> 1) ^ (oldC << 7);
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value);
+    },
     /** Return from Interrupt */
-    RTI: (address, cpu) => {},
+    RTI: (address, cpu) => {
+        cpu.setFlags(cpu.stackPull8() | 0x20);
+        cpu.PC = cpu.stackPull16();
+    },
     /** Return from Subroutine */
-    RTS: (address, cpu) => {},
+    RTS: (address, cpu) => {
+        cpu.PC = cpu.stackPull16() + 1;
+    },
     /** Subtract with Carry */
-    SBC: (address, cpu) => {},
+    SBC: (address, cpu) => {
+        const a = cpu.A;
+        const value = cpu.read8(address);
+        cpu.A = (cpu.A - value - (1 - cpu.flags.C));
+        // Carry Flag
+        if (cpu.A > 0xFF) {
+            cpu.flags.C = 1;
+        } else {
+            cpu.flags.C = 0;
+        }
+        cpu.A &= 0xFF;
+        // Overflow Flag
+        if ((a ^ cpu.A) & (value ^ cpu.A) & 0x80) {
+            cpu.flags.V = 1;
+        } else {
+            cpu.flags.V = 0;
+        }
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Set Carry Flag */
-    SEC: (address, cpu) => {},
+    SEC: (address, cpu) => {
+        cpu.flags.C = 1;
+    },
     /** Set Decimal Flag */
-    SED: (address, cpu) => {},
+    SED: (address, cpu) => {
+        cpu.flags.D = 1;
+    },
     /** Set Interrupt Disable */
-    SEI: (address, cpu) => {},
+    SEI: (address, cpu) => {
+        cpu.flags.I = 1;
+    },
     /** Store Accumulator */
-    STA: (address, cpu) => {},
+    STA: (address, cpu) => {
+        cpu.write8(address, cpu.A);
+    },
     /** Store X Register */
-    STX: (address, cpu) => {},
+    STX: (address, cpu) => {
+        cpu.write8(address, cpu.X)
+    },
     /** Store Y Register */
-    STY: (address, cpu) => {},
+    STY: (address, cpu) => {
+        cpu.write8(address, cpu.Y)
+    },
     /** Transfer Accumulator to X */
-    TAX: (address, cpu) => {},
+    TAX: (address, cpu) => {
+        cpu.X = cpu.A;
+    },
     /** Transfer Accumulator to Y */
-    TAY: (address, cpu) => {},
+    TAY: (address, cpu) => {
+        cpu.Y = cpu.A;
+    },
     /** Transfer Stack Pointer to X */
-    TSX: (address, cpu) => {},
+    TSX: (address, cpu) => {
+        cpu.X = cpu.SP;
+    },
     /** Transfer X to Accumulator */
-    TXA: (address, cpu) => {},
+    TXA: (address, cpu) => {
+        cpu.A = cpu.X;
+    },
     /** Transfer X to Stack Pointer */
-    TXS: (address, cpu) => {},
+    TXS: (address, cpu) => {
+        cpu.SP = cpu.X;
+    },
     /** Transfer Y to Accumulator */
-    TYA: (address, cpu) => {},
+    TYA: (address, cpu) => {
+        cpu.A = cpu.Y;
+    },
 }
 
 type Bytes = number;
@@ -435,7 +562,7 @@ export const OPCODES: OpcodeMap = {
     0xAC: [INSTRUCTION_SET.LDY, ADDRESSING_MODES.ABSOLUTE, 3, 4],
     0xBC: [INSTRUCTION_SET.LDY, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
     /** Instruction LSR */
-    0x4A: [INSTRUCTION_SET.LSR, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x4A: [INSTRUCTION_SET.LSR_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
     0x46: [INSTRUCTION_SET.LSR, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
     0x56: [INSTRUCTION_SET.LSR, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
     0x4E: [INSTRUCTION_SET.LSR, ADDRESSING_MODES.ABSOLUTE, 3, 6],
@@ -460,13 +587,13 @@ export const OPCODES: OpcodeMap = {
     /** Instruction PLP */
     0x28: [INSTRUCTION_SET.PLP, ADDRESSING_MODES.IMPLIED, 1, 4],
     /** Instruction ROL */
-    0x2A: [INSTRUCTION_SET.ROL, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x2A: [INSTRUCTION_SET.ROL_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
     0x26: [INSTRUCTION_SET.ROL, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
     0x36: [INSTRUCTION_SET.ROL, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
     0x2E: [INSTRUCTION_SET.ROL, ADDRESSING_MODES.ABSOLUTE, 3, 6],
     0x3E: [INSTRUCTION_SET.ROL, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
     /** Instruction ROR */
-    0x6A: [INSTRUCTION_SET.ROR, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x6A: [INSTRUCTION_SET.ROR_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
     0x66: [INSTRUCTION_SET.ROR, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
     0x76: [INSTRUCTION_SET.ROR, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
     0x6E: [INSTRUCTION_SET.ROR, ADDRESSING_MODES.ABSOLUTE, 3, 6],
