@@ -1,4 +1,5 @@
 import { CPU } from "./cpu"
+import { isPageCrossed } from "./utils";
 
 export enum ADDRESSING_MODES {
     /** Function is direclty implied and no further operand needs to be specified */
@@ -35,61 +36,215 @@ type Instruction = (address: number, cpu: CPU) => void;
 
 export const INSTRUCTION_SET: Record<string, Instruction> = {
     /** Add with Carry */
-    ADC: (address, cpu) => {},
+    ADC: (address, cpu) => {
+        const a = cpu.A;
+        const value = cpu.read8(address);
+        cpu.A += value + cpu.flags.C;
+        
+        /** Carry Flag */
+        cpu.flags.C = (cpu.A > 0xFF) ? 1 : 0;
+
+        cpu.setNegativeFlag(cpu.A);
+
+        /** Overflow Flag */
+        // Overflow is set if > 127 or < -128
+        cpu.flags.V = ((a ^ cpu.A) & (value ^ cpu.A) & 0x80) ? 1 : 0;
+
+        /** Fix overflow */
+        cpu.A &= 0xFF;
+
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Logical AND */
-    AND: (address, cpu) => {},
-    /** Arithmeitc Shift Left */
-    ASL: (address, cpu) => {},
+    AND: (address, cpu) => {
+        cpu.A &= cpu.read8(address);
+
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
+    /** Arithmetic Shift Left (Accumulator) */
+    ASL_ACC: (address, cpu) => {
+        cpu.flags.C = (cpu.A >> 7) & 1;
+        cpu.A = (cpu.A << 1) & 0xFF;
+
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
+    /** Arithmetic Shift Left (Memory) */
+    ASL: (address, cpu) => {
+        let value = cpu.read8(address);
+        cpu.flags.C = (value >> 7) & 1;
+        value = (value << 1) & 0xFF;
+
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value);
+    },
     /** Branch if Carry Clear */
-    BCC: (address, cpu) => {},
+    BCC: (address, cpu) => {
+        if (cpu.flags.C === 0) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Branch if Carry Set */
-    BCS: (address, cpu) => {},
+    BCS: (address, cpu) => {
+        if (cpu.flags.C === 1) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF; 
+        }
+    },
     /** Branch if Equal */
-    BEQ: (address, cpu) => {},
+    BEQ: (address, cpu) => {
+        if (cpu.flags.Z === 1) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Bit Test */
-    BIT: (address, cpu) => {},
+    BIT: (address, cpu) => {
+        const value = cpu.read8(address);
+        cpu.flags.V = (value >> 6) & 1;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(cpu.A & value);
+    },
     /** Branch if Minus */
-    BMI: (address, cpu) => {},
+    BMI: (address, cpu) => {
+        if (cpu.flags.N === 1) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Branch if Not Equal */
-    BNE: (address, cpu) => {},
+    BNE: (address, cpu) => {
+        if (cpu.flags.Z === 0) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Branch if Positive */
-    BPL: (address, cpu) => {},
+    BPL: (address, cpu) => {
+        if (cpu.flags.N === 0) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Force Interupt */
-    BRK: (address, cpu) => {},
+    // TODO: http://nesdev.com/the%20'B'%20flag%20&%20BRK%20instruction.txt
+    BRK: (address, cpu) => {
+        cpu.stackPush16(cpu.PC + 1);
+        // I do not know why the or with 0x18 (24);
+        cpu.stackPush8(cpu.getFlags() | 0x18);
+        cpu.flags.I = 1;
+        cpu.PC = cpu.read16(0xFFFE);
+    },
     /** Branch if Overflow Clear */
-    BVC: (address, cpu) => {},
+    BVC: (address, cpu) => {
+        if (cpu.flags.V === 0) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Branch if Overflow Set */
-    BVS: (address, cpu) => {},
+    BVS: (address, cpu) => {
+        if (cpu.flags.V === 1) {
+            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
+            cpu.PC = address & 0xFFFF;
+        }
+    },
     /** Clear Carry Flag */
-    CLC: (address, cpu) => {},
+    CLC: (address, cpu) => {
+        cpu.flags.C = 0;
+    },
     /** Clear Decimal Mode */
-    CLD: (address, cpu) => {},
+    CLD: (address, cpu) => {
+        cpu.flags.D = 0;
+    },
     /** Clear Interupt Disable */
-    CLI: (address, cpu) => {},
+    CLI: (address, cpu) => {
+        cpu.flags.I = 0;
+    },
     /** Clear Overflow Flag */
-    CLV: (address, cpu) => {},
+    CLV: (address, cpu) => {
+        cpu.flags.V = 0;
+    },
     /** Compare */
-    CMP: (address, cpu) => {},
+    CMP: (address, cpu) => {
+        const value = cpu.read8(address);
+        const sub = cpu.A - value;
+        cpu.flags.C = (cpu.A >= value) ? 1 : 0;
+        cpu.setNegativeFlag(sub);
+        cpu.setZeroFlag(sub);
+    },
     /** Compare X Register */
-    CPX: (address, cpu) => {},
+    CPX: (address, cpu) => {
+        const value = cpu.read8(address);
+        const sub = cpu.X - value;
+        cpu.flags.C = (cpu.X >= value) ? 1 : 0;
+        cpu.setNegativeFlag(sub);
+        cpu.setZeroFlag(sub);
+    },
     /** Compare Y Register */
-    CPY: (address, cpu) => {},
+    CPY: (address, cpu) => {
+        const value = cpu.read8(address);
+        const sub = cpu.Y - value;
+        cpu.flags.C = (cpu.Y >= value) ? 1 : 0;
+        cpu.setNegativeFlag(sub);
+        cpu.setZeroFlag(sub);
+    },
     /** Decrement Memory */
-    DEC: (address, cpu) => {},
+    DEC: (address, cpu) => {
+        const value = (cpu.read8(address) - 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value);
+    },
     /** Decrement X Register */
-    DEX: (address, cpu) => {},
+    DEX: (address, cpu) => {
+        const value = (cpu.X - 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.X = value;
+    },
     /** Decerement Y Register */
-    DEY: (address, cpu) => {},
+    DEY: (address, cpu) => {
+        const value = (cpu.Y - 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.Y = value;
+    },
     /** Exclusive OR */
-    EOR: (address, cpu) => {},
+    EOR: (address, cpu) => {
+        cpu.A ^= cpu.read8(address);
+        cpu.setNegativeFlag(cpu.A);
+        cpu.setZeroFlag(cpu.A);
+    },
     /** Increment Memory */
-    INC: (address, cpu) => {},
+    INC: (address, cpu) => {
+        const value = (cpu.read8(address) + 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.write8(address, value);
+    },
     /** Increment X Register */
-    INX: (address, cpu) => {},
+    INX: (address, cpu) => {
+        const value = (cpu.X + 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.X = value;
+    },
     /** Increment Y Register */
-    INY: (address, cpu) => {},
+    INY: (address, cpu) => {
+        const value = (cpu.Y + 1) & 0xFF;
+        cpu.setNegativeFlag(value);
+        cpu.setZeroFlag(value);
+        cpu.Y = value;
+    },
     /** Jump */
-    JMP: (address, cpu) => {},
+    // TODO https://github.com/christopherpow/nes-test-roms/blob/master/stress/NEStress.txt#L141
+    JMP: (address, cpu) => {
+        cpu.PC = address & 0xFFFF;
+    },
     /** Jump to Subroutine */
     JSR: (address, cpu) => {},
     /** Load Accumulator */
@@ -175,7 +330,7 @@ export const OPCODES: OpcodeMap = {
     0x21: [INSTRUCTION_SET.AND, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
     0x31: [INSTRUCTION_SET.AND, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
     /** Instruction ASL */
-    0x0A: [INSTRUCTION_SET.ASL, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x0A: [INSTRUCTION_SET.ASL_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
     0x06: [INSTRUCTION_SET.ASL, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
     0x16: [INSTRUCTION_SET.ASL, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
     0x0E: [INSTRUCTION_SET.ASL, ADDRESSING_MODES.ABSOLUTE, 3, 6],
