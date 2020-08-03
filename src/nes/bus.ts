@@ -16,8 +16,8 @@ export default class Bus {
     }
 
     read(address: number): number {
+        /** The 2KB memory is mirrored 4 times */
         if (address < 0x2000) {
-            /** The 2KB memory is mirrored 4 times */
             return this.cpuMemory.read8(address);
         }
 
@@ -25,6 +25,7 @@ export default class Bus {
     }
 
     write(address: number, value: number) {
+        /** The 2KB memory is mirrored 4 times */
         if (address < 0x2000) {
             this.cpuMemory.write8(address, value);
         }
