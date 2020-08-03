@@ -1,400 +1,220 @@
-import { CPU } from "./cpu";
-import { isPageCrossed } from "./utils";
+import { OPCODE, OPCODES } from "./opcodes";
+import { ADDRESSING_MODES, ADDRESSING_MODE } from "./addressing_modes";
 
-export type INSTRUCTION = (address: number, cpu: CPU) => void; 
+type Bytes = number;
+type Cycles = number;
+export type Instruction = [OPCODE, ADDRESSING_MODE, Bytes, Cycles];
 
-export const INSTRUCTIONS: Record<string, INSTRUCTION> = {
-    /** Add with Carry */
-    ADC: (address, cpu) => {
-        const a = cpu.A;
-        const value = cpu.read8(address);
-        cpu.A += value + cpu.flags.C;
-        
-        /** Carry Flag */
-        cpu.flags.C = (cpu.A > 0xFF) ? 1 : 0;
+interface InstructionMap {
+    [opcode: number]: Instruction;
+}
 
-        cpu.setNegativeFlag(cpu.A);
-
-        /** Overflow Flag */
-        // Overflow is set if > 127 or < -128
-        cpu.flags.V = ((a ^ cpu.A) & (value ^ cpu.A) & 0x80) ? 1 : 0;
-
-        /** Fix overflow */
-        cpu.A &= 0xFF;
-
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Logical AND */
-    AND: (address, cpu) => {
-        cpu.A &= cpu.read8(address);
-
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Arithmetic Shift Left (Accumulator) */
-    ASL_ACC: (address, cpu) => {
-        cpu.flags.C = (cpu.A >> 7) & 1;
-        cpu.A = (cpu.A << 1) & 0xFF;
-
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Arithmetic Shift Left (Memory) */
-    ASL: (address, cpu) => {
-        let value = cpu.read8(address);
-        cpu.flags.C = (value >> 7) & 1;
-        value = (value << 1) & 0xFF;
-
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value);
-    },
-    /** Branch if Carry Clear */
-    BCC: (address, cpu) => {
-        if (cpu.flags.C === 0) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Branch if Carry Set */
-    BCS: (address, cpu) => {
-        if (cpu.flags.C === 1) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF; 
-        }
-    },
-    /** Branch if Equal */
-    BEQ: (address, cpu) => {
-        if (cpu.flags.Z === 1) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Bit Test */
-    BIT: (address, cpu) => {
-        const value = cpu.read8(address);
-        cpu.flags.V = (value >> 6) & 1;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(cpu.A & value);
-    },
-    /** Branch if Minus */
-    BMI: (address, cpu) => {
-        if (cpu.flags.N === 1) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Branch if Not Equal */
-    BNE: (address, cpu) => {
-        if (cpu.flags.Z === 0) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Branch if Positive */
-    BPL: (address, cpu) => {
-        if (cpu.flags.N === 0) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Force Interupt */
-    // TODO: http://nesdev.com/the%20'B'%20flag%20&%20BRK%20instruction.txt
-    BRK: (address, cpu) => {
-        cpu.stackPush16(cpu.PC + 1);
-        // I do not know why the or with 0x18 (24);
-        cpu.stackPush8(cpu.getFlags() | 0x18);
-        cpu.flags.I = 1;
-        cpu.PC = cpu.read16(0xFFFE);
-    },
-    /** Branch if Overflow Clear */
-    BVC: (address, cpu) => {
-        if (cpu.flags.V === 0) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Branch if Overflow Set */
-    BVS: (address, cpu) => {
-        if (cpu.flags.V === 1) {
-            cpu.cycles += isPageCrossed(address, cpu.PC) ? 2 : 1;
-            cpu.PC = address & 0xFFFF;
-        }
-    },
-    /** Clear Carry Flag */
-    CLC: (address, cpu) => {
-        cpu.flags.C = 0;
-    },
-    /** Clear Decimal Mode */
-    CLD: (address, cpu) => {
-        cpu.flags.D = 0;
-    },
-    /** Clear Interupt Disable */
-    CLI: (address, cpu) => {
-        cpu.flags.I = 0;
-    },
-    /** Clear Overflow Flag */
-    CLV: (address, cpu) => {
-        cpu.flags.V = 0;
-    },
-    /** Compare */
-    CMP: (address, cpu) => {
-        const value = cpu.read8(address);
-        const sub = cpu.A - value;
-        cpu.flags.C = (cpu.A >= value) ? 1 : 0;
-        cpu.setNegativeFlag(sub);
-        cpu.setZeroFlag(sub);
-    },
-    /** Compare X Register */
-    CPX: (address, cpu) => {
-        const value = cpu.read8(address);
-        const sub = cpu.X - value;
-        cpu.flags.C = (cpu.X >= value) ? 1 : 0;
-        cpu.setNegativeFlag(sub);
-        cpu.setZeroFlag(sub);
-    },
-    /** Compare Y Register */
-    CPY: (address, cpu) => {
-        const value = cpu.read8(address);
-        const sub = cpu.Y - value;
-        cpu.flags.C = (cpu.Y >= value) ? 1 : 0;
-        cpu.setNegativeFlag(sub);
-        cpu.setZeroFlag(sub);
-    },
-    /** Decrement Memory */
-    DEC: (address, cpu) => {
-        const value = (cpu.read8(address) - 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value);
-    },
-    /** Decrement X Register */
-    DEX: (address, cpu) => {
-        const value = (cpu.X - 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.X = value;
-    },
-    /** Decerement Y Register */
-    DEY: (address, cpu) => {
-        const value = (cpu.Y - 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.Y = value;
-    },
-    /** Exclusive OR */
-    EOR: (address, cpu) => {
-        cpu.A ^= cpu.read8(address);
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Increment Memory */
-    INC: (address, cpu) => {
-        const value = (cpu.read8(address) + 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value);
-    },
-    /** Increment X Register */
-    INX: (address, cpu) => {
-        const value = (cpu.X + 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.X = value;
-    },
-    /** Increment Y Register */
-    INY: (address, cpu) => {
-        const value = (cpu.Y + 1) & 0xFF;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.Y = value;
-    },
-    /** Jump */
-    // TODO https://github.com/christopherpow/nes-test-roms/blob/master/stress/NEStress.txt#L141
-    JMP: (address, cpu) => {
-        cpu.PC = address & 0xFFFF;
-    },
-    /** Jump to Subroutine */
-    JSR: (address, cpu) => {
-        cpu.stackPush16(cpu.PC - 1);
-        cpu.PC = address & 0xFFFF;
-    },
-    /** Load Accumulator */
-    LDA: (address, cpu) => {
-        cpu.A = cpu.read8(address);
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Load X Register */
-    LDX: (address, cpu) => {
-        cpu.X = cpu.read8(address);
-        cpu.setNegativeFlag(cpu.X);
-        cpu.setZeroFlag(cpu.X);
-    },
-    /** Load Y Register */
-    LDY: (address, cpu) => {
-        cpu.Y = cpu.read8(address);
-        cpu.setNegativeFlag(cpu.Y);
-        cpu.setZeroFlag(cpu.Y);
-    },
-    /** Logical Shift Right (Accumulator) */
-    LSR_ACC: (address, cpu) => {
-        cpu.flags.C = cpu.A & 1;
-        cpu.A >>= 1;
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Logical Shift Right (Memory) */
-    LSR: (address, cpu) => {
-        let value = cpu.read8(address);
-        cpu.flags.C = value & 1;
-        value >>= 1;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value);
-    },
-    /** No Operation */
-    NOP: (address, cpu) => {},
-    /** Logical Inclusive OR */
-    ORA: (address, cpu) => {
-        cpu.A |= cpu.read8(address);
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Push Accumulator */
-    PHA: (address, cpu) => {
-        cpu.stackPush8(cpu.A);
-    },
-    /** Push Processor Status */
-    PHP: (address, cpu) => {
-        cpu.stackPush8(cpu.getFlags() | 0x10);
-    },
-    /** Pull Accumulator */
-    PLA: (address, cpu) => {
-        cpu.A = cpu.stackPull8();
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Pull Processor Status */
-    PLP: (address, cpu) => {
-        cpu.setFlags((cpu.stackPull8() & 0xEF) | 0x20);
-    },
-    /** Rotate Left (Accumulator) */
-    ROL_ACC: (address, cpu) => {
-        const oldC = cpu.flags.C;
-        
-        cpu.flags.C = (cpu.A >> 7) & 1;
-        cpu.A = ((cpu.A << 1) & 0xFF) | oldC;
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Rotate Left (Memory) */
-    ROL: (address, cpu) => {
-        const oldC = cpu.flags.C;
-        let value = cpu.read8(address);
-
-        cpu.flags.C = (value >> 7) & 1;
-        value = ((value << 1) & 0xFF) | oldC;
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value); 
-    },
-    /** Rotate Right (Accumulator) */
-    ROR_ACC: (address, cpu) => {
-        const oldC = cpu.flags.C;
-
-        cpu.flags.C = cpu.A & 1;
-        cpu.A = (cpu.A >> 1) ^ (oldC << 7);
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Rotate Right (Memory) */
-    ROR: (address, cpu) => {
-        const oldC = cpu.flags.C;
-        let value = cpu.read8(address);
-
-        cpu.flags.C = value & 1;
-        value = (value >> 1) ^ (oldC << 7);
-        cpu.setNegativeFlag(value);
-        cpu.setZeroFlag(value);
-        cpu.write8(address, value);
-    },
-    /** Return from Interrupt */
-    RTI: (address, cpu) => {
-        cpu.setFlags(cpu.stackPull8() | 0x20);
-        cpu.PC = cpu.stackPull16();
-    },
-    /** Return from Subroutine */
-    RTS: (address, cpu) => {
-        cpu.PC = cpu.stackPull16() + 1;
-    },
-    /** Subtract with Carry */
-    SBC: (address, cpu) => {
-        const a = cpu.A;
-        const value = cpu.read8(address);
-        cpu.A = (cpu.A - value - (1 - cpu.flags.C));
-        // Carry Flag
-        if (cpu.A > 0xFF) {
-            cpu.flags.C = 1;
-        } else {
-            cpu.flags.C = 0;
-        }
-        cpu.A &= 0xFF;
-        // Overflow Flag
-        if ((a ^ cpu.A) & (value ^ cpu.A) & 0x80) {
-            cpu.flags.V = 1;
-        } else {
-            cpu.flags.V = 0;
-        }
-        cpu.setNegativeFlag(cpu.A);
-        cpu.setZeroFlag(cpu.A);
-    },
-    /** Set Carry Flag */
-    SEC: (address, cpu) => {
-        cpu.flags.C = 1;
-    },
-    /** Set Decimal Flag */
-    SED: (address, cpu) => {
-        cpu.flags.D = 1;
-    },
-    /** Set Interrupt Disable */
-    SEI: (address, cpu) => {
-        cpu.flags.I = 1;
-    },
-    /** Store Accumulator */
-    STA: (address, cpu) => {
-        cpu.write8(address, cpu.A);
-    },
-    /** Store X Register */
-    STX: (address, cpu) => {
-        cpu.write8(address, cpu.X)
-    },
-    /** Store Y Register */
-    STY: (address, cpu) => {
-        cpu.write8(address, cpu.Y)
-    },
-    /** Transfer Accumulator to X */
-    TAX: (address, cpu) => {
-        cpu.X = cpu.A;
-    },
-    /** Transfer Accumulator to Y */
-    TAY: (address, cpu) => {
-        cpu.Y = cpu.A;
-    },
-    /** Transfer Stack Pointer to X */
-    TSX: (address, cpu) => {
-        cpu.X = cpu.SP;
-    },
-    /** Transfer X to Accumulator */
-    TXA: (address, cpu) => {
-        cpu.A = cpu.X;
-    },
-    /** Transfer X to Stack Pointer */
-    TXS: (address, cpu) => {
-        cpu.SP = cpu.X;
-    },
-    /** Transfer Y to Accumulator */
-    TYA: (address, cpu) => {
-        cpu.A = cpu.Y;
-    },
+export const INSTRUCTIONS: InstructionMap = {
+    /* Instruction ADC */
+    0x69: [OPCODES.ADC, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0x65: [OPCODES.ADC, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x75: [OPCODES.ADC, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x6D: [OPCODES.ADC, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0x7D: [OPCODES.ADC, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0x79: [OPCODES.ADC, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0x61: [OPCODES.ADC, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0x71: [OPCODES.ADC, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /* Instruction AND */
+    0x29: [OPCODES.AND, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0x25: [OPCODES.AND, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x35: [OPCODES.AND, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x2D: [OPCODES.AND, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0x3D: [OPCODES.AND, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0x39: [OPCODES.AND, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0x21: [OPCODES.AND, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0x31: [OPCODES.AND, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction ASL */
+    0x0A: [OPCODES.ASL_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x06: [OPCODES.ASL, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0x16: [OPCODES.ASL, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0x0E: [OPCODES.ASL, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0x1E: [OPCODES.ASL, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction BCC */
+    0x90: [OPCODES.BCC, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BCS */
+    0xB0: [OPCODES.BCS, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BEQ */
+    0xF0: [OPCODES.BEQ, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BIT */
+    0x24: [OPCODES.BIT, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x2C: [OPCODES.BIT, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    /** Instruction BMI */
+    0x30: [OPCODES.BMI, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BNE */
+    0xD0: [OPCODES.BNE, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BPL */
+    0x10: [OPCODES.BPL, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BRK */
+    0x00: [OPCODES.BRK, ADDRESSING_MODES.IMPLIED, 1, 7],
+    /** Instruction BVC */
+    0x50: [OPCODES.BVC, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction BVS */
+    0x70: [OPCODES.BVS, ADDRESSING_MODES.RELATIVE, 2, 2],
+    /** Instruction CLC */
+    0x18: [OPCODES.CLC, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction CLD */
+    0xD8: [OPCODES.CLD, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction CLI */
+    0x58: [OPCODES.CLI, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction CLV */
+    0xB8: [OPCODES.CLV, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction CMP */
+    0xC9: [OPCODES.CMP, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xC5: [OPCODES.CMP, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xD5: [OPCODES.CMP, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0xCD: [OPCODES.CMP, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0xDD: [OPCODES.CMP, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0xD9: [OPCODES.CMP, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0xC1: [OPCODES.CMP, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0xD1: [OPCODES.CMP, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction CPX */
+    0xE0: [OPCODES.CPX, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xE4: [OPCODES.CPX, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xEC: [OPCODES.CPX, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    /** Instruction CPY */
+    0xC0: [OPCODES.CPY, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xC4: [OPCODES.CPY, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xCC: [OPCODES.CPY, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    /** Instruction DEC */
+    0xC6: [OPCODES.DEC, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0xD6: [OPCODES.DEC, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0xCE: [OPCODES.DEC, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0xDE: [OPCODES.DEC, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction DEX */
+    0xCA: [OPCODES.DEX, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction DEY */
+    0x88: [OPCODES.DEY, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction EOR */
+    0x49: [OPCODES.EOR, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0x45: [OPCODES.EOR, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x55: [OPCODES.EOR, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x4D: [OPCODES.EOR, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0x5D: [OPCODES.EOR, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0x59: [OPCODES.EOR, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0x41: [OPCODES.EOR, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0x51: [OPCODES.EOR, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction INC */
+    0xE6: [OPCODES.INC, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0xF6: [OPCODES.INC, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0xEE: [OPCODES.INC, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0xFE: [OPCODES.INC, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction INX */
+    0xE8: [OPCODES.INX, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction INY */
+    0xC8: [OPCODES.INY, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction JMP */
+    0x4C: [OPCODES.JMP, ADDRESSING_MODES.ABSOLUTE, 3, 3],
+    0x6C: [OPCODES.JMP, ADDRESSING_MODES.INDIRECT, 3, 5],
+    /** Instruction JSR */
+    0x20: [OPCODES.JSR, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    /** Instruction LDA */
+    0xA9: [OPCODES.LDA, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xA5: [OPCODES.LDA, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xB5: [OPCODES.LDA, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0xAD: [OPCODES.LDA, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0xBD: [OPCODES.LDA, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0xB9: [OPCODES.LDA, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0xA1: [OPCODES.LDA, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0xB1: [OPCODES.LDA, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction LDX */
+    0xA2: [OPCODES.LDX, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xA6: [OPCODES.LDX, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xB6: [OPCODES.LDX, ADDRESSING_MODES.ZERO_PAGE_Y, 2, 4],
+    0xAE: [OPCODES.LDX, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0xBE: [OPCODES.LDX, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    /** Instruction LDY */
+    0xA0: [OPCODES.LDY, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xA4: [OPCODES.LDY, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xB4: [OPCODES.LDY, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0xAC: [OPCODES.LDY, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0xBC: [OPCODES.LDY, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    /** Instruction LSR */
+    0x4A: [OPCODES.LSR_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x46: [OPCODES.LSR, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0x56: [OPCODES.LSR, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0x4E: [OPCODES.LSR, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0x5E: [OPCODES.LSR, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction NOP */
+    0xEA: [OPCODES.NOP, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction ORA */
+    0x09: [OPCODES.ORA, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0x05: [OPCODES.ORA, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x15: [OPCODES.ORA, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x0D: [OPCODES.ORA, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0x1D: [OPCODES.ORA, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0x19: [OPCODES.ORA, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0x01: [OPCODES.ORA, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0x11: [OPCODES.ORA, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction PHA */
+    0x48: [OPCODES.PHA, ADDRESSING_MODES.IMPLIED, 1, 3],
+    /** Instruction PHP */
+    0x08: [OPCODES.PHP, ADDRESSING_MODES.IMPLIED, 1, 3],
+    /** Instruction PLA */
+    0x68: [OPCODES.PLA, ADDRESSING_MODES.IMPLIED, 1, 4],
+    /** Instruction PLP */
+    0x28: [OPCODES.PLP, ADDRESSING_MODES.IMPLIED, 1, 4],
+    /** Instruction ROL */
+    0x2A: [OPCODES.ROL_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x26: [OPCODES.ROL, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0x36: [OPCODES.ROL, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0x2E: [OPCODES.ROL, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0x3E: [OPCODES.ROL, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction ROR */
+    0x6A: [OPCODES.ROR_ACC, ADDRESSING_MODES.ACCUMULATOR, 1, 2],
+    0x66: [OPCODES.ROR, ADDRESSING_MODES.ZERO_PAGE, 2, 5],
+    0x76: [OPCODES.ROR, ADDRESSING_MODES.ZERO_PAGE_X, 2, 6],
+    0x6E: [OPCODES.ROR, ADDRESSING_MODES.ABSOLUTE, 3, 6],
+    0x7E: [OPCODES.ROR, ADDRESSING_MODES.ABSOLUTE_X, 3, 7],
+    /** Instruction RTI */
+    0x40: [OPCODES.RTI, ADDRESSING_MODES.IMPLIED, 1, 6],
+    /** Instruction RTS */
+    0x60: [OPCODES.RTS, ADDRESSING_MODES.IMPLIED, 1, 6],
+    /** Instruction SBC */
+    0xE9: [OPCODES.SBC, ADDRESSING_MODES.IMMEDIATE, 2, 2],
+    0xE5: [OPCODES.SBC, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0xF5: [OPCODES.SBC, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0xED: [OPCODES.SBC, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0xFD: [OPCODES.SBC, ADDRESSING_MODES.ABSOLUTE_X, 3, 4],
+    0xF9: [OPCODES.SBC, ADDRESSING_MODES.ABSOLUTE_Y, 3, 4],
+    0xE1: [OPCODES.SBC, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0xF1: [OPCODES.SBC, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 5],
+    /** Instruction SEC */
+    0x38: [OPCODES.SEC, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction SED */
+    0xF8: [OPCODES.SED, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction SEI */
+    0x78: [OPCODES.SEI, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction STA */
+    0x85: [OPCODES.STA, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x95: [OPCODES.STA, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x8D: [OPCODES.STA, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    0x9D: [OPCODES.STA, ADDRESSING_MODES.ABSOLUTE_X, 3, 5],
+    0x99: [OPCODES.STA, ADDRESSING_MODES.ABSOLUTE_Y, 3, 5],
+    0x81: [OPCODES.STA, ADDRESSING_MODES.INDEXED_INDIRECT_X, 2, 6],
+    0x91: [OPCODES.STA, ADDRESSING_MODES.INDIRECT_INDEXED_Y, 2, 6],
+    /** Instruction STX */
+    0x86: [OPCODES.STX, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x96: [OPCODES.STX, ADDRESSING_MODES.ZERO_PAGE_Y, 2, 4],
+    0x8E: [OPCODES.STX, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    /** Instruction STY */
+    0x84: [OPCODES.STY, ADDRESSING_MODES.ZERO_PAGE, 2, 3],
+    0x94: [OPCODES.STY, ADDRESSING_MODES.ZERO_PAGE_X, 2, 4],
+    0x8C: [OPCODES.STY, ADDRESSING_MODES.ABSOLUTE, 3, 4],
+    /** Instruction TAX */
+    0xAA: [OPCODES.TAX, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction TAY */
+    0xA8: [OPCODES.TAY, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction TSX */
+    0xBA: [OPCODES.TSX, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction TXA */
+    0x8A: [OPCODES.TXA, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction TXS */
+    0x9A: [OPCODES.TXS, ADDRESSING_MODES.IMPLIED, 1, 2],
+    /** Instruction TYA */
+    0x98: [OPCODES.TYA, ADDRESSING_MODES.IMPLIED, 1, 2],
 }

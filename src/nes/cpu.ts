@@ -1,23 +1,19 @@
 import CPUMemory from "./cpu_memory";
-import { OPCODES } from "./opcodes";
-import { ADDRESSING_MODES } from "./addressing_modes";
+import { INSTRUCTIONS, Instruction } from "./instructions";
+import Bus from "./bus";
 
 /** 
  * The CPU is a 6502 microprocessor which is an 8 bit CPU .
  * The processor is little endian
  */
-export class CPU {
+export default class CPU {
     cycles: number;
-    
-    /**
-     * The CPU Memory is 2 KB in size.
-     * The first 256 byte page of memory ($0000-$00FF) is referred to as 'Zero Page'.
-     * The second page of memory ($0100-$01FF) is reserved for the system stack.
-     */
-    memory: CPUMemory;
 
     /** The program counter is a 16 bit register. */
     PC: number;
+
+    /** The bus which is an address lane which combines multiple components */
+    bus: Bus;
 
     /** 
      * The stack pointer is an 8 bit register.
@@ -44,7 +40,7 @@ export class CPU {
         C: number;
         /** Zero Flag */
         Z: number;
-        /** Interupt Disable */
+        /** Interrupt Disable */
         I: number;
         /** Decimal Mode */
         D: number;
@@ -56,9 +52,9 @@ export class CPU {
         N: number;
     }
 
-    constructor() {
+    constructor(bus: Bus) {
         this.cycles = 0;
-        this.memory = new CPUMemory();
+        this.bus = bus;
         this.PC = 0;
         this.SP = 0;
         this.A = 0;
@@ -75,43 +71,92 @@ export class CPU {
         };
     }
 
-    tick() {
+    tick(): number {
+        const oldCycles = this.cycles;
+
         const opcode = this.read8(this.PC);
         const [
             instruction,
             addressingMode,
             instructionSize,
             instructionCycles
-        ] = OPCODES[opcode];
-
+        ]: Instruction = INSTRUCTIONS[opcode];
+        
         const address = addressingMode(this);
+        instruction(address, this);
 
         this.PC += instructionSize;
         this.cycles += instructionCycles;
 
-        instruction(address, this);
+        return this.cycles - oldCycles;
+    }
+
+    /**
+     * Interrupts
+     */
+    /** Reset interrupt */
+    reset() {
+        this.A = 0;
+        this.X = 0;
+        this.Y = 0;
+        this.SP = 0xFD;
+        this.flags = {
+            C: 0,
+            Z: 0,
+            I: 0,
+            D: 0,
+            B: 0,
+            V: 0,
+            N: 0,
+        }
+        this.PC = this.read16(0xFFFC);
+    }
+
+    /** Maskable interrupt */
+    IRQ() {
+        if (this.flags.I === 0) {
+            this.stackPush16(this.PC + 1);
+            // I do not know why the or with ~0x10 (-17);
+            // What I think it does it sets everything except for the carry flag;
+            this.stackPush8(this.getFlags() & ~0x10);
+            this.flags.I = 1;
+            this.PC = this.read16(0xFFFE);
+            this.cycles += 7;
+        }
+    }
+
+    /** Non-maskable interrupt */
+    NMI() {
+        this.stackPush16(this.PC + 1);
+        // I do not know why the or with ~0x10 (-17);
+        // What I think it does it sets everything except for the carry flag;
+        this.stackPush8(this.getFlags() & ~0x10);
+        this.flags.I = 1;
+        this.PC = this.read16(0xFFFA);
+        this.cycles += 8;
     }
 
     /*
      * Memory
      */
     read8(address: number): number {
-        return this.memory.read8(address);
+        return this.bus.read(address);
     }
 
     read16(address: number): number {
-        return this.memory.read8((address + 1) << 8) | this.memory.read8(address);
+        return this.bus.read((address + 1) << 8) | this.bus.read(address);
     }
 
     write8(address: number, value: number) {
-        this.memory.write8(address, value);
+        this.bus.write(address, value);
     }
 
     /*
      * Stack
      */
     stackPush8(value: number) {
-        this.memory.stack[this.SP] = value;
+        // TODO: refactor with the bus
+        this.bus.cpuMemory.stack[this.SP] = value;
         this.SP = (this.SP - 1) & 0xFF; 
     }
 
@@ -121,8 +166,9 @@ export class CPU {
     }
 
     stackPull8() {
+        // TOOD: refactor with the bus
         this.SP = (this.SP + 1) & 0xFF;
-        return this.memory.stack[this.SP];
+        return this.bus.cpuMemory.stack[this.SP];
     }
 
     stackPull16() {

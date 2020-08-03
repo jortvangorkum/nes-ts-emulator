@@ -1,4 +1,5 @@
-import { CPU } from "./cpu";
+import CPU from "./cpu";
+import { isPageCrossed } from "./utils";
 
 export type ADDRESSING_MODE = (cpu: CPU) => number;
 
@@ -44,10 +45,24 @@ export const ADDRESSING_MODES: Record<string, ADDRESSING_MODE> = {
     },
     /** The instruction address is calculated by taking the 16 bit address and adding the current value of the X register */
     ABSOLUTE_X: (cpu) => {
-        return (cpu.read16(cpu.PC + 1) + cpu.X) & 0xFFFF;
+        const address = (cpu.read16(cpu.PC + 1) + cpu.X) & 0xFFFF;
+
+        /** Takes an additional cycle when the address is on a different page */
+        if (isPageCrossed(address - cpu.X, address)) {
+            cpu.cycles += 1;
+        }
+
+        return address;
     },
     /** The instruction address is calculated by taking the 16 bit address and adding the current value of the Y register */
     ABSOLUTE_Y: (cpu) => {
+        const address = (cpu.read16(cpu.PC + 1) + cpu.Y) & 0xFFFF;
+
+        /** Takes an additional cycle when the address is on a different page */
+        if (isPageCrossed(address - cpu.Y, address)) {
+            cpu.cycles += 1;
+        }
+
         return (cpu.read16(cpu.PC + 1) + cpu.Y) & 0xFFFF;
     },
     /** The instruction contains a 16 bit address which identifies the location of the least significant byte of another 16 bit memory address which is the real target of the instruction */
@@ -61,6 +76,13 @@ export const ADDRESSING_MODES: Record<string, ADDRESSING_MODE> = {
     },
     /** In instruction contains the zero page location of the least significant byte of 16 bit address. The Y register is dynamically added to this value to generate the actual target address */
     INDIRECT_INDEXED_Y: (cpu) => {
+        const address = cpu.read16((cpu.read8(cpu.PC + 1) + cpu.Y) & 0xFF);
+
+        /** Takes an additional cycle when the address is on a different page */
+        if (isPageCrossed(address - cpu.Y, address)) {
+            cpu.cycles += 1;
+        }
+
         return cpu.read16((cpu.read8(cpu.PC + 1) + cpu.Y) & 0xFF);
     },
 };
