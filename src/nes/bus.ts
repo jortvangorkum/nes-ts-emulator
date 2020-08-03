@@ -1,5 +1,6 @@
 import CPU from "./cpu";
 import CPUMemory from "./cpu_memory";
+import Cartridge from "./cartridge";
 
 export default class Bus {
     cpu: CPU;
@@ -10,24 +11,37 @@ export default class Bus {
      */
     cpuMemory: CPUMemory;
 
-    constructor() {
+    cartridge: Cartridge;
+
+    constructor(dataBuffer: Buffer) {
         this.cpu = new CPU(this);
         this.cpuMemory = new CPUMemory();
+        this.cartridge = new Cartridge(dataBuffer);
     }
 
-    read(address: number): number {
+    cpuRead(address: number): number {
         /** The 2KB memory is mirrored 4 times */
         if (address < 0x2000) {
-            return this.cpuMemory.read8(address);
+            return this.cpuMemory.read(address);
+        } 
+        /** The cartridge is from 0x6000 - 0xFFFF */
+        else {
+            return this.cartridge.cpuRead(address);
         }
-
-        return 0;
     }
 
-    write(address: number, value: number) {
+    cpuWrite(address: number, value: number) {
         /** The 2KB memory is mirrored 4 times */
         if (address < 0x2000) {
-            this.cpuMemory.write8(address, value);
+            this.cpuMemory.write(address, value);
+        } 
+        /** The cartridge is from 0x6000 - 0xFFFF */
+        else {
+            this.cartridge.cpuWrite(address, value);
         }
+    }
+
+    clock() {
+        this.cpu.tick();
     }
 }

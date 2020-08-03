@@ -73,8 +73,11 @@ export default class CPU {
 
     tick(): number {
         const oldCycles = this.cycles;
-
+        console.log(`Cycle: ${this.cycles}`);
+        
+        console.log(this.PC);
         const opcode = this.read8(this.PC);
+        console.log(`Opcode: ${opcode}`);
         const [
             instruction,
             addressingMode,
@@ -82,9 +85,11 @@ export default class CPU {
             instructionCycles
         ]: Instruction = INSTRUCTIONS[opcode];
         
+        console.log(`Instruction: ${instruction.name} Addressing mode: ${addressingMode.name} Instruction size: ${instructionSize} Instruction Cycles: ${instructionCycles}`);
+        
         const address = addressingMode(this);
         instruction(address, this);
-
+        
         this.PC += instructionSize;
         this.cycles += instructionCycles;
 
@@ -140,15 +145,15 @@ export default class CPU {
      * Memory
      */
     read8(address: number): number {
-        return this.bus.read(address);
+        return this.bus.cpuRead(address);
     }
 
     read16(address: number): number {
-        return this.bus.read((address + 1) << 8) | this.bus.read(address);
+        return this.bus.cpuRead((address + 1) << 8) | this.bus.cpuRead(address);
     }
 
     write8(address: number, value: number) {
-        this.bus.write(address, value);
+        this.bus.cpuWrite(address, value);
     }
 
     /*

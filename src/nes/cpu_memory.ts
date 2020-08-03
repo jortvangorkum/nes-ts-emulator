@@ -14,7 +14,7 @@ export default class CPUMemory {
         this.ram = new Uint8Array(1536);
     }
 
-    read8(address: number): number {
+    read(address: number): number {
         address = address % 0x800;
         if (address < 0x100) {
             return this.ZP[address];
@@ -25,7 +25,7 @@ export default class CPUMemory {
         }
     }
 
-    write8(address: number, value: number) {
+    write(address: number, value: number) {
         address = address % 0x800;
         if (address < 0x100) {
             this.ZP[address] = value;
