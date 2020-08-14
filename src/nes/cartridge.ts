@@ -48,7 +48,7 @@ export default class Cartridge {
         this.PRG = this.dataArray.subarray(HEADER_SIZE, HEADER_SIZE + this.sizePRG);
 
         console.log(`Bank size PRG: ${this.banksPRG} Bank size CHR: ${this.banksCHR} Mirror Type: ${this.mirrorType} Mapper Type: ${this.mapperType}`);
-        console.log(`Program: ${this.PRG.slice(0, 10)}`);
+        console.log(`Program: ${this.PRG.slice(0, 20)}`);
         
         if (this.sizeCHR > 0) {
             this.CHR = this.dataArray.subarray(HEADER_SIZE + this.sizePRG, HEADER_SIZE + this.sizePRG + this.sizeCHR);
@@ -59,15 +59,20 @@ export default class Cartridge {
         console.log(`Pattern set: ${this.CHR.slice(0,10)}`);
         
         switch(this.mapperType) {
-            default:
+            case 0:
                 this.mapper = new NROM(this.banksPRG, this.banksCHR);
                 break;
+            default:
+                throw new Error(`Invalid mapping type: ${this.mapperType}`)
         }
     }
 
     cpuRead(address: number): number {
+        console.log(`Cartridge cpu read with address: ${address.toString(16)}`)
         const mappedAddress = this.mapper.cpuMapRead(address);
-        return this.PRG[mappedAddress];
+        const value = this.PRG[mappedAddress];
+        console.log(`Cartidge cpu read with address: ${address.toString(16)} and value: ${value.toString(16)}`)
+        return value;
     }
 
     cpuWrite(address: number, value: number) {

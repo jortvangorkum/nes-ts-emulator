@@ -75,7 +75,7 @@ export default class CPU {
         const oldCycles = this.cycles;
         console.log(`Cycle: ${this.cycles}`);
         
-        console.log(this.PC);
+        console.log(`PC: ${this.PC}`);
         const opcode = this.read8(this.PC);
         console.log(`Opcode: ${opcode}`);
         const [
@@ -149,7 +149,7 @@ export default class CPU {
     }
 
     read16(address: number): number {
-        return this.bus.cpuRead((address + 1) << 8) | this.bus.cpuRead(address);
+        return (this.bus.cpuRead(address + 1) << 8) | this.bus.cpuRead(address);
     }
 
     write8(address: number, value: number) {
